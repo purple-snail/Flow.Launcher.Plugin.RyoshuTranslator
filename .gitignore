@@ -1,14 +1,13 @@
+# Auto-generated cache
+sangria_cache.json
+
 # Python
-venv/
 __pycache__/
 *.pyc
 *.pyo
-*.egg-info/
-
-# Cache (auto-generated)
-sangria_cache.json
 
 # Environment
+venv/
 .env
 .venv
 

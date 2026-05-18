@@ -1,0 +1,17 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Cache (auto-generated)
+sangria_cache.json
+
+# Environment
+.env
+.venv
+
+# OS
+Thumbs.db
+.DS_Store

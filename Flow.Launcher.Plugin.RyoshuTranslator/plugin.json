@@ -1,0 +1,12 @@
+{
+  "ID": "3a7b1c9d-5e8f-4a2b-9c3d-1e5f7a2b8c4d",
+  "ActionKeyword": "rs",
+  "Name": "Ryoshu Translator",
+  "Description": "Search Ryōshū's SANGRIA abbreviations from Limbus Company — instant translations, sources, and reliability info.",
+  "Author": "purple-snail",
+  "Version": "1.0.0",
+  "Language": "python",
+  "Website": "https://github.com/purple-snail/Flow.Launcher.Plugin.RyoshuTranslator",
+  "IcoPath": "icon.webp",
+  "ExecuteFileName": "main.py"
+}

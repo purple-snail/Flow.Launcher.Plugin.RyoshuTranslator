@@ -18,8 +18,8 @@ Type `rs` followed by a SANGRIA acronym to instantly find its full translation, 
 | -------------- | ---------------------------------- |
 | Open menu      | `rs`                               |
 | Search SANGRIA | `rs` + abbreviation (e.g. `rs LD`) |
-| Refresh cache  | `rs !refresh`                      |
-| Cache info     | `rs !cache`                        |
+| Refresh cache  | `rs refresh`                      |
+| Cache info     | `rs`                           |
 
 ## Icon Credit
 

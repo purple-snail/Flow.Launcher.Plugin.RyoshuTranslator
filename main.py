@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 URL = "https://limbuscompany.wiki.gg/wiki/Ry%C5%8Dsh%C5%AB"
 CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sangria_cache.json")
+CUSTOM_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "custom_entries.json")
 CACHE_DURATION = timedelta(hours=1)
 PLUGIN_ICON = "icon.webp"
 
@@ -161,6 +162,52 @@ def is_cache_fresh():
         return False
 
 
+# -- Custom Entries Persistence --------------------------------------------------
+
+
+def load_custom_entries():
+    """Load custom entries from custom_entries.json."""
+    if not os.path.exists(CUSTOM_FILE):
+        return []
+    try:
+        with open(CUSTOM_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError, IOError):
+        return []
+
+
+def save_custom_entries(entries):
+    """Save custom entries to custom_entries.json."""
+    try:
+        with open(CUSTOM_FILE, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False, indent=2)
+        return True
+    except (OSError, IOError):
+        return False
+
+
+def merge_entries(wiki_entries):
+    """Merge wiki entries with custom entries (custom entries take precedence by abbreviation)."""
+    custom = load_custom_entries()
+    if not custom:
+        return wiki_entries
+
+    merged = []
+    seen = set()
+
+    for entry in custom:
+        merged.append(entry)
+        seen.add(entry["sangria"].lower())
+
+    for entry in wiki_entries:
+        key = entry["sangria"].lower()
+        if key not in seen:
+            merged.append(entry)
+            seen.add(key)
+
+    return merged
+
+
 def get_cache_info():
     if not os.path.exists(CACHE_FILE):
         return "No cache exists."
@@ -179,7 +226,10 @@ def get_cache_info():
         else:
             age_str = f"{age.days} day(s) old"
         status = "Fresh" if is_cache_fresh() else "Stale"
-        return f"{len(entries)} entries | {age_str} | {status}"
+
+        custom_count = len(load_custom_entries())
+        custom_info = f" | {custom_count} custom entries" if custom_count else ""
+        return f"{len(entries)} entries | {age_str} | {status}{custom_info}"
     except (json.JSONDecodeError, KeyError, ValueError, OSError):
         return "Cache is corrupted."
 
@@ -190,18 +240,18 @@ def load_or_fetch_data(force_refresh=False):
         if error:
             return entries, error
         save_cache(entries)
-        return entries, None
+        return merge_entries(entries), None
     if is_cache_fresh():
         try:
-            entries, _ = load_cache()
-            return entries, None
+            wiki_entries, _ = load_cache()
+            return merge_entries(wiki_entries), None
         except (json.JSONDecodeError, KeyError, ValueError, OSError):
             pass
     entries, error = fetch_sangria_data()
     if error:
         return entries, error
     save_cache(entries)
-    return entries, None
+    return merge_entries(entries), None
 
 
 def search_entries(entries, query):
@@ -228,14 +278,8 @@ def make_result(title, subtitle, action=None):
 def build_menu_results():
     return [
         make_result(
-            "🔄 Refresh Cache",
-            "Force re-fetch data from the wiki",
-            {"method": "query", "parameters": ["!refresh"]},
-        ),
-        make_result(
-            "ℹ️ Cache Info",
-            f"Status: {get_cache_info()}",
-            {"method": "query", "parameters": ["!cache"], "dont_hide": True},
+            "Cache Status",
+            get_cache_info(),
         ),
     ]
 
@@ -246,8 +290,10 @@ def build_entry_results(entries):
         title = f"{entry['sangria']}  ->  {entry['translation']}"
         subtitle = f"[{entry['section']}] {entry['reliability']} | {entry['source']}"
         copy_text = f"{entry['sangria']}: {entry['translation']} ({entry['reliability']}) - {entry['source']}"
+
         results.append(make_result(
-            title, subtitle, {"method": "copy", "parameters": [copy_text]},
+            title, subtitle,
+            {"method": "copy", "parameters": [copy_text]},
         ))
     if len(entries) > 50:
         results.append(make_result(
@@ -264,15 +310,212 @@ def handle_query(search_params):
     query = " ".join(search_params).strip()
     query_lower = query.lower()
 
-    if query_lower == "!refresh":
+    # -- Custom entry: add ---------------------------------------------------------
+    if query_lower == "add":
+        return [make_result(
+            "Add Custom Entry",
+            'Type: add SANGRIA|Translation|Reliability|Source',
+        )]
+
+    if query_lower == "edit":
+        custom = load_custom_entries()
+        if not custom:
+            return [make_result("No Custom Entries", "Add one with add SANGRIA|Translation|Reliability|Source")]
+        
+        results = []
+        for entry in custom:
+            title = f"Edit {entry['sangria']}"
+            subtitle = f"{entry['translation']} ({entry['reliability']}) - {entry['source']}"
+            results.append(make_result(
+                title, subtitle,
+                {"method": "query", "parameters": [f"edit {entry['sangria']}|"], "dont_hide": True},
+            ))
+        return results
+
+    if query_lower.startswith("add "):
+        parts = query[4:].split("|", 3)
+        if len(parts) < 2:
+            return [make_result(
+                "Invalid Format",
+                'Use: add SANGRIA|Translation|Reliability|Source  (minimum: SANGRIA|Translation)',
+            )]
+        sangria = parts[0].strip()
+        translation = parts[1].strip()
+        reliability = parts[2].strip() if len(parts) > 2 else "Custom"
+        source = parts[3].strip() if len(parts) > 3 else "User-added"
+
+        if not sangria or not translation:
+            return [make_result("Error", "SANGRIA and Translation cannot be empty")]
+
+        return [make_result(
+            f"Confirm Adding {sangria}?",
+            f"Value: {translation} ({reliability}) - {source}",
+            {"method": "query", "parameters": [f"commit_add {query}"], "dont_hide": False},
+        )]
+
+    # -- Custom entry: commit add -------------------------------------------------
+    if query_lower.startswith("commit_add "):
+        # Extract the original add query: 'commit_add add SANGRIA|...'
+        add_query = query[11:]
+        parts = add_query[4:].split("|", 3)
+        sangria = parts[0].strip()
+        translation = parts[1].strip()
+        reliability = parts[2].strip() if len(parts) > 2 else "Custom"
+        source = parts[3].strip() if len(parts) > 3 else "User-added"
+
+        custom = load_custom_entries()
+        existing_idx = None
+        for i, e in enumerate(custom):
+            if e["sangria"].lower() == sangria.lower():
+                existing_idx = i
+                break
+
+        entry = {
+            "section": "Custom",
+            "sangria": sangria,
+            "translation": translation,
+            "reliability": reliability,
+            "source": source,
+        }
+
+        if existing_idx is not None:
+            custom[existing_idx] = entry
+            save_custom_entries(custom)
+            return [make_result(
+                f"Updated '{sangria}'",
+                f"{translation} ({reliability}) - {source}",
+            )]
+        else:
+            custom.append(entry)
+            save_custom_entries(custom)
+            return [make_result(
+                f"Added '{sangria}'",
+                f"{translation} ({reliability}) - {source}",
+            )]
+
+    # -- Custom entry: edit --------------------------------------------------------
+    if query_lower.startswith("edit "):
+        parts = query[5:].split("|", 3)
+        sangria = parts[0].strip()
+        if len(parts) < 2 or not parts[1].strip():
+            custom = load_custom_entries()
+            found = any(e["sangria"].lower() == sangria.lower() for e in custom)
+            if found:
+                return []
+            else:
+                return [make_result(
+                    "Not Found",
+                    f"No custom entry found with abbreviation '{sangria}'",
+                )]
+
+        # Instead of updating immediately, ask for confirmation
+        return [make_result(
+            f"Confirm Update for {sangria}?",
+            f"New values: {parts[1].strip()} | {parts[2].strip() if len(parts)>2 else 'Custom'} | {parts[3].strip() if len(parts)>3 else 'User-added'}",
+            {"method": "query", "parameters": [f"commit_edit {query}"], "dont_hide": False},
+        )]
+
+    # -- Custom entry: commit edit -------------------------------------------------
+    if query_lower.startswith("commit_edit "):
+        # Extract the original edit query: 'commit_edit edit SANGRIA|...'
+        edit_query = query[12:]
+        parts = edit_query[5:].split("|", 3)
+        sangria = parts[0].strip()
+        translation = parts[1].strip()
+        reliability = parts[2].strip() if len(parts) > 2 else "Custom"
+        source = parts[3].strip() if len(parts) > 3 else "User-added"
+
+        custom = load_custom_entries()
+        found_idx = None
+        for i, e in enumerate(custom):
+            if e["sangria"].lower() == sangria.lower():
+                found_idx = i
+                break
+
+        if found_idx is None:
+            return [make_result("Error", "Entry not found during commit")]
+
+        custom[found_idx] = {
+            "section": "Custom",
+            "sangria": sangria,
+            "translation": translation,
+            "reliability": reliability,
+            "source": source,
+        }
+        save_custom_entries(custom)
+        return [make_result(
+            f"Updated '{sangria}'",
+            f"{translation} ({reliability}) - {source}",
+        )]
+
+    # -- Custom entry: delete ------------------------------------------------------
+    if query_lower == "delete":
+        custom = load_custom_entries()
+        if not custom:
+            return [make_result("No Custom Entries", "Add one with add SANGRIA|Translation|Reliability|Source")]
+        
+        results = []
+        for entry in custom:
+            title = f"Delete {entry['sangria']}"
+            subtitle = f"{entry['translation']} ({entry['reliability']}) - {entry['source']}"
+            results.append(make_result(
+                title, subtitle,
+                {"method": "query", "parameters": [f"delete {entry['sangria']}"], "dont_hide": False},
+            ))
+        return results
+
+    if query_lower.startswith("delete "):
+        sangria = query[7:].strip()
+        if not sangria:
+            return [make_result("Error", "Specify an abbreviation to delete (e.g. delete XYZ)")]
+
+        custom = load_custom_entries()
+        found_idx = None
+        for i, e in enumerate(custom):
+            if e["sangria"].lower() == sangria.lower():
+                found_idx = i
+                break
+
+        if found_idx is None:
+            return [make_result(
+                "Not Found",
+                f"No custom entry found with abbreviation '{sangria}'",
+            )]
+
+        deleted = custom.pop(found_idx)
+        save_custom_entries(custom)
+        return [make_result(
+            f"Deleted '{deleted['sangria']}'",
+            f"{deleted['translation']} ({deleted['reliability']}) - {deleted['source']}",
+        )]
+
+    # -- Custom entry: list all (via menu) -----------------------------------------
+    if query_lower == "list":
+        custom = load_custom_entries()
+        if not custom:
+            return [make_result(
+                "No Custom Entries",
+                "Add one with add SANGRIA|Translation|Reliability|Source",
+            )]
+        results = []
+        for entry in custom:
+            title = f"{entry['sangria']}  ->  {entry['translation']}"
+            subtitle = f"[{entry['section']}] {entry['reliability']} | {entry['source']}"
+            copy_text = f"{entry['sangria']}: {entry['translation']} ({entry['reliability']}) - {entry['source']}"
+            results.append(make_result(
+                title, subtitle,
+                {"method": "copy", "parameters": [copy_text]},
+            ))
+        return results
+
+    # -- Standard commands ---------------------------------------------------------
+    if query_lower == "refresh":
         entries, error = load_or_fetch_data(force_refresh=True)
         if error:
             return [make_result("Error", error)]
-        return [make_result("Cache Refreshed", f"Loaded {len(entries)} entries from the wiki")]
+        return [make_result("Cache Refreshed", f"Loaded {len(entries)} entries from the wiki | {get_cache_info()}")]
 
-    if query_lower == "!cache":
-        return [make_result("Cache Information", get_cache_info())]
-
+    # -- Search --------------------------------------------------------------------
     entries, error = load_or_fetch_data()
     if error:
         return [make_result("Error", error)]

@@ -4,7 +4,7 @@
   "Name": "Ryoshu Translator",
   "Description": "Search Ryōshū's SANGRIA abbreviations from Limbus Company — instant translations, sources, and reliability info.",
   "Author": "purple-snail",
-  "Version": "1.0.0",
+  "Version": "1.1.0",
   "Language": "python",
   "Website": "https://github.com/purple-snail/Flow.Launcher.Plugin.RyoshuTranslator",
   "IcoPath": "icon.webp",

@@ -30,9 +30,13 @@ class TableParser(HTMLParser):
         self.current_cell_text = ""
         self.is_colspan = False
         self.colspan_value = 1
+        self.in_sup = False
 
     def handle_starttag(self, tag, attrs):
         attrs_dict = dict(attrs)
+        if tag == "sup" and (self.in_td or self.in_th):
+            self.in_sup = True
+            return
         if tag == "table" and "wikitable" in attrs_dict.get("class", ""):
             self.in_table = True
             return
@@ -54,6 +58,9 @@ class TableParser(HTMLParser):
             return
 
     def handle_endtag(self, tag):
+        if tag == "sup":
+            self.in_sup = False
+            return
         if tag == "table" and self.in_table:
             self.in_table = False
             return
@@ -72,7 +79,7 @@ class TableParser(HTMLParser):
             return
 
     def handle_data(self, data):
-        if self.in_td or self.in_th:
+        if (self.in_td or self.in_th) and not self.in_sup:
             self.current_cell_text += data
 
     def handle_entityref(self, name):
